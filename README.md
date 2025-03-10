@@ -2,7 +2,7 @@
 
 ![IMG](./IMG.png)
 
-基于 llama.cpp b3233，已修正 ggml-cuda 错误 ```identifier "__builtin_assume" is undefined```。更新的版本似乎不支持 cuda-10.2
+基于 llama.cpp b3233，已修正 ggml-cuda 错误 ```identifier "__builtin_assume" is undefined```
 
 需从源码构建 gcc-8.5，默认自带的 gcc-7 缺少功能 ```vld1q_s8_x4```
 
