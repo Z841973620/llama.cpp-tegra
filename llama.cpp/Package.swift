@@ -3,14 +3,23 @@
 import PackageDescription
 
 var sources = [
-    "ggml.c",
-    "sgemm.cpp",
-    "llama.cpp",
-    "unicode.cpp",
-    "unicode-data.cpp",
-    "ggml-alloc.c",
-    "ggml-backend.c",
-    "ggml-quants.c",
+    "src/llama.cpp",
+    "src/llama-vocab.cpp",
+    "src/llama-grammar.cpp",
+    "src/llama-sampling.cpp",
+    "src/unicode.cpp",
+    "src/unicode-data.cpp",
+    "ggml/src/ggml.c",
+    "ggml/src/ggml-aarch64.c",
+    "ggml/src/ggml-alloc.c",
+    "ggml/src/ggml-backend.cpp",
+    "ggml/src/ggml-backend-reg.cpp",
+    "ggml/src/ggml-cpu/ggml-cpu.c",
+    "ggml/src/ggml-cpu/ggml-cpu.cpp",
+    "ggml/src/ggml-cpu/ggml-cpu-aarch64.c",
+    "ggml/src/ggml-cpu/ggml-cpu-quants.c",
+    "ggml/src/ggml-threading.cpp",
+    "ggml/src/ggml-quants.c",
 ]
 
 var resources: [Resource] = []
@@ -18,21 +27,26 @@ var linkerSettings: [LinkerSetting] = []
 var cSettings: [CSetting] =  [
     .unsafeFlags(["-Wno-shorten-64-to-32", "-O3", "-DNDEBUG"]),
     .unsafeFlags(["-fno-objc-arc"]),
+    .headerSearchPath("ggml/src"),
+    .headerSearchPath("ggml/src/ggml-cpu"),
     // NOTE: NEW_LAPACK will required iOS version 16.4+
     // We should consider add this in the future when we drop support for iOS 14
     // (ref: ref: https://developer.apple.com/documentation/accelerate/1513264-cblas_sgemm?language=objc)
     // .define("ACCELERATE_NEW_LAPACK"),
     // .define("ACCELERATE_LAPACK_ILP64")
+    .define("GGML_USE_CPU"),
 ]
 
+
 #if canImport(Darwin)
-sources.append("ggml-metal.m")
-resources.append(.process("ggml-metal.metal"))
+sources.append("ggml/src/ggml-common.h")
+sources.append("ggml/src/ggml-metal/ggml-metal.m")
+resources.append(.process("ggml/src/ggml-metal/ggml-metal.metal"))
 linkerSettings.append(.linkedFramework("Accelerate"))
 cSettings.append(
     contentsOf: [
         .define("GGML_USE_ACCELERATE"),
-        .define("GGML_USE_METAL")
+        .define("GGML_USE_METAL"),
     ]
 )
 #endif
@@ -57,15 +71,15 @@ let package = Package(
             name: "llama",
             path: ".",
             exclude: [
+               "build",
                "cmake",
                "examples",
                "scripts",
                "models",
                "tests",
                "CMakeLists.txt",
-               "ggml-cuda.cu",
-               "ggml-cuda.h",
-               "Makefile"
+               "Makefile",
+               "ggml/src/ggml-metal-embed.metal"
             ],
             sources: sources,
             resources: resources,
@@ -74,5 +88,5 @@ let package = Package(
             linkerSettings: linkerSettings
         )
     ],
-    cxxLanguageStandard: .cxx11
+    cxxLanguageStandard: .cxx17
 )

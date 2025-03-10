@@ -5,7 +5,7 @@
 # Usage:
 #
 #   $ cd /path/to/llama.cpp
-#   $ ./scripts/sync-ggml-am.sh -skip hash0,hash1,hash2...
+#   $ ./scripts/sync-ggml-am.sh -skip hash0,hash1,hash2... -C 3
 #
 
 set -e
@@ -25,9 +25,23 @@ lc=$(cat $SRC_LLAMA/scripts/sync-ggml.last)
 echo "Syncing ggml changes since commit $lc"
 
 to_skip=""
-if [ "$1" == "-skip" ]; then
-    to_skip=$2
-fi
+
+# context for git patches in number of lines
+ctx="8"
+
+while [ "$1" != "" ]; do
+    case $1 in
+        -skip )
+            shift
+            to_skip=$1
+            ;;
+        -C )
+            shift
+            ctx=$1
+            ;;
+    esac
+    shift
+done
 
 cd $SRC_GGML
 
@@ -52,17 +66,26 @@ while read c; do
         fi
     fi
 
-    git format-patch -k $c~1..$c --stdout -- \
-        include/ggml/ggml*.h \
+    git format-patch -U${ctx} -k $c~1..$c --stdout -- \
+        CMakeLists.txt \
+        src/CMakeLists.txt \
+        cmake/FindSIMD.cmake \
         src/ggml*.h \
         src/ggml*.c \
         src/ggml*.cpp \
-        src/ggml*.m \
-        src/ggml*.metal \
-        src/ggml*.cu \
+        src/ggml-blas/* \
+        src/ggml-cann/* \
+        src/ggml-cpu/* \
         src/ggml-cuda/* \
+        src/ggml-hip/* \
+        src/ggml-kompute/* \
+        src/ggml-metal/* \
+        src/ggml-musa/* \
+        src/ggml-rpc/* \
+        src/ggml-sycl/* \
+        src/ggml-vulkan/* \
+        include/ggml*.h \
         tests/test-opt.cpp \
-        tests/test-grad0.cpp \
         tests/test-quantize-fns.cpp \
         tests/test-quantize-perf.cpp \
         tests/test-backend-ops.cpp \
@@ -93,76 +116,58 @@ if [ -f $SRC_LLAMA/ggml-src.patch ]; then
 
     # replace filenames:
     #
-    # src/ggml.c                  -> ggml.c
-    # src/ggml-alloc.c            -> ggml-alloc.c
-    # src/ggml-backend-impl.h     -> ggml-backend-impl.h
-    # src/ggml-backend.c          -> ggml-backend.c
-    # src/ggml-common.h           -> ggml-common.h
-    # src/ggml-cuda/*             -> ggml-cuda/
-    # src/ggml-cuda.cu            -> ggml-cuda.cu
-    # src/ggml-cuda.h             -> ggml-cuda.h
-    # src/ggml-impl.h             -> ggml-impl.h
-    # src/ggml-kompute.cpp        -> ggml-kompute.cpp
-    # src/ggml-kompute.h          -> ggml-kompute.h
-    # src/ggml-metal.h            -> ggml-metal.h
-    # src/ggml-metal.m            -> ggml-metal.m
-    # src/ggml-quants.c           -> ggml-quants.c
-    # src/ggml-quants.h           -> ggml-quants.h
-    # src/ggml-rpc.cpp            -> ggml-rpc.cpp
-    # src/ggml-rpc.h              -> ggml-rpc.h
-    # src/ggml-sycl.cpp           -> ggml-sycl.cpp
-    # src/ggml-sycl.h             -> ggml-sycl.h
-    # src/ggml-vulkan.cpp         -> ggml-vulkan.cpp
-    # src/ggml-vulkan.h           -> ggml-vulkan.h
-    # include/ggml/ggml.h         -> ggml.h
-    # include/ggml/ggml-alloc.h   -> ggml-alloc.h
-    # include/ggml/ggml-backend.h -> ggml-backend.h
+    # CMakelists.txt       -> ggml/CMakeLists.txt
+    # src/CMakeLists.txt   -> ggml/src/CMakeLists.txt
+    # cmake/FindSIMD.cmake -> ggml/cmake/FindSIMD.cmake
     #
-    # tests/test-opt.cpp           -> tests/test-opt.cpp
-    # tests/test-grad0.cpp         -> tests/test-grad0.cpp
-    # tests/test-quantize-fns.cpp  -> tests/test-quantize-fns.cpp
-    # tests/test-quantize-perf.cpp -> tests/test-quantize-perf.cpp
-    # tests/test-backend-ops.cpp   -> tests/test-backend-ops.cpp
+    # src/ggml*.c          -> ggml/src/ggml*.c
+    # src/ggml*.cpp        -> ggml/src/ggml*.cpp
+    # src/ggml*.h          -> ggml/src/ggml*.h
+    # src/ggml-blas/*      -> ggml/src/ggml-blas/*
+    # src/ggml-cann/*      -> ggml/src/ggml-cann/*
+    # src/ggml-cpu/*       -> ggml/src/ggml-cpu/*
+    # src/ggml-cuda/*      -> ggml/src/ggml-cuda/*
+    # src/ggml-hip/*       -> ggml/src/ggml-hip/*
+    # src/ggml-kompute/*   -> ggml/src/ggml-kompute/*
+    # src/ggml-metal/*     -> ggml/src/ggml-metal/*
+    # src/ggml-musa/*      -> ggml/src/ggml-musa/*
+    # src/ggml-rpc/*       -> ggml/src/ggml-rpc/*
+    # src/ggml-sycl/*      -> ggml/src/ggml-sycl/*
+    # src/ggml-vulkan/*    -> ggml/src/ggml-vulkan/*
     #
-    # LICENSE                      -> LICENSE
-    # scripts/gen-authors.sh       -> scripts/gen-authors.sh
+    # include/ggml*.h -> ggml/include/ggml*.h
+    #
+    # tests/test*.cpp -> tests/
+    #
+    # LICENSE                -> LICENSE
+    # scripts/gen-authors.sh -> scripts/gen-authors.sh
 
-    cat ggml-src.patch | sed \
-        -e 's/src\/ggml\.c/ggml.c/g' \
-        -e 's/src\/ggml-alloc\.c/ggml-alloc.c/g' \
-        -e 's/src\/ggml-backend-impl\.h/ggml-backend-impl.h/g' \
-        -e 's/src\/ggml-backend\.c/ggml-backend.c/g' \
-        -e 's/src\/ggml-common\.h/ggml-common.h/g' \
-        -e 's/src\/ggml-cuda\//ggml-cuda\//g' \
-        -e 's/src\/ggml-cuda\.cu/ggml-cuda.cu/g' \
-        -e 's/src\/ggml-cuda\.h/ggml-cuda.h/g' \
-        -e 's/src\/ggml-impl\.h/ggml-impl.h/g' \
-        -e 's/src\/ggml-kompute\.cpp/ggml-kompute.cpp/g' \
-        -e 's/src\/ggml-kompute\.h/ggml-kompute.h/g' \
-        -e 's/src\/ggml-metal\.h/ggml-metal.h/g' \
-        -e 's/src\/ggml-metal\.m/ggml-metal.m/g' \
-        -e 's/src\/ggml-quants\.c/ggml-quants.c/g' \
-        -e 's/src\/ggml-quants\.h/ggml-quants.h/g' \
-        -e 's/src\/ggml-rpc\.cpp/ggml-rpc.cpp/g' \
-        -e 's/src\/ggml-rpc\.h/ggml-rpc.h/g' \
-        -e 's/src\/ggml-sycl\.cpp/ggml-sycl.cpp/g' \
-        -e 's/src\/ggml-sycl\.h/ggml-sycl.h/g' \
-        -e 's/src\/ggml-vulkan\.cpp/ggml-vulkan.cpp/g' \
-        -e 's/src\/ggml-vulkan\.h/ggml-vulkan.h/g' \
-        -e 's/include\/ggml\/ggml\.h/ggml.h/g' \
-        -e 's/include\/ggml\/ggml-alloc\.h/ggml-alloc.h/g' \
-        -e 's/include\/ggml\/ggml-backend\.h/ggml-backend.h/g' \
-        -e 's/tests\/test-opt\.cpp/tests\/test-opt.cpp/g' \
-        -e 's/tests\/test-grad0\.cpp/tests\/test-grad0.cpp/g' \
-        -e 's/tests\/test-quantize-fns\.cpp/tests\/test-quantize-fns.cpp/g' \
-        -e 's/tests\/test-quantize-perf\.cpp/tests\/test-quantize-perf.cpp/g' \
-        -e 's/tests\/test-backend-ops\.cpp/tests\/test-backend-ops.cpp/g' \
-        -e 's/LICENSE/LICENSE/g' \
-        -e 's/scripts\/gen-authors\.sh/scripts\/gen-authors.sh/g' \
+    cat ggml-src.patch | sed -E \
+        -e 's/([[:space:]]|[ab]\/)CMakeLists.txt/\1ggml\/CMakeLists.txt/g' \
+        -e 's/([[:space:]]|[ab]\/)src\/CMakeLists.txt/\1ggml\/src\/CMakeLists.txt/g' \
+        -e 's/([[:space:]]|[ab]\/)cmake\/FindSIMD.cmake/\1ggml\/cmake\/FindSIMD.cmake/g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml(.*)\.c/\1ggml\/src\/ggml\2.c/g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml(.*)\.cpp/\1ggml\/src\/ggml\2.cpp/g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml(.*)\.h/\1ggml\/src\/ggml\2.h/g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-blas\//\1ggml\/src\/ggml-blas\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-cann\//\1ggml\/src\/ggml-cann\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-cpu\//\1ggml\/src\/ggml-cpu\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-cuda\//\1ggml\/src\/ggml-cuda\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-hip\//\1ggml\/src\/ggml-hip\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-kompute\//\1ggml\/src\/ggml-kompute\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-metal\//\1ggml\/src\/ggml-metal\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-musa\//\1ggml\/src\/ggml-musa\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-rpc\//\1ggml\/src\/ggml-rpc\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-sycl\//\1ggml\/src\/ggml-sycl\//g' \
+        -e 's/([[:space:]]|[ab]\/)src\/ggml-vulkan\//\1ggml\/src\/ggml-vulkan\//g' \
+        -e 's/([[:space:]]|[ab]\/)include\/ggml(.*)\.h/\1ggml\/include\/ggml\2.h/g' \
+        -e 's/([[:space:]]|[ab]\/)tests\/(.*)\.cpp/\1tests\/\2.cpp/g' \
+        -e 's/([[:space:]]|[ab]\/)LICENSE/\1LICENSE/g' \
+        -e 's/([[:space:]]|[ab]\/)scripts\/gen-authors\.sh/\1scripts\/gen-authors.sh/g' \
         > ggml-src.patch.tmp
     mv ggml-src.patch.tmp ggml-src.patch
 
-    git am ggml-src.patch
+    git am -C${ctx} ggml-src.patch
 
     rm -v $SRC_LLAMA/ggml-src.patch
 fi

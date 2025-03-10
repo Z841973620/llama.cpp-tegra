@@ -2,33 +2,18 @@
 #undef NDEBUG
 #endif
 
-#define LLAMA_API_INTERNAL
-
-#include "ggml.h"
-#include "llama.h"
-#include "grammar-parser.h"
-#include "json-schema-to-grammar.h"
 #include "unicode.h"
+#include "llama-grammar.h"
+#include "json-schema-to-grammar.h"
+
 #include <cassert>
 #include <string>
 #include <vector>
 
 using json = nlohmann::ordered_json;
 
-static llama_grammar* build_grammar(const std::string & grammar_str) {
-    auto parsed_grammar = grammar_parser::parse(grammar_str.c_str());
-
-    // Ensure we parsed correctly
-    assert(!parsed_grammar.rules.empty());
-
-    // Ensure we have a root node
-    assert(!(parsed_grammar.symbol_ids.find("root") == parsed_grammar.symbol_ids.end()));
-
-    std::vector<const llama_grammar_element*> grammar_rules(parsed_grammar.c_rules());
-    llama_grammar* grammar = llama_grammar_init(
-        grammar_rules.data(), grammar_rules.size(), parsed_grammar.symbol_ids.at("root"));
-
-    return grammar;
+static llama_grammar * build_grammar(const std::string & grammar_str) {
+    return llama_grammar_init_impl(nullptr, grammar_str.c_str(), "root");
 }
 
 static bool test_build_grammar_fails(const std::string & grammar_str) {
@@ -44,21 +29,24 @@ static bool test_build_grammar_fails(const std::string & grammar_str) {
     return grammar_fails;
 }
 
-static bool match_string(const std::string & input, llama_grammar* grammar) {
-    auto decoded = decode_utf8(input, {});
+static bool match_string(const std::string & input, llama_grammar * grammar) {
+    const auto cpts = unicode_cpts_from_utf8(input);
 
-    const auto & code_points = decoded.first;
+    const llama_grammar_rules  & rules      = llama_grammar_get_rules (grammar);
+          llama_grammar_stacks & stacks_cur = llama_grammar_get_stacks(grammar);
 
-    for (auto it = code_points.begin(), end = code_points.end() - 1; it != end; ++it) {
-        auto prev_stacks = grammar->stacks;
-        llama_grammar_accept(grammar->rules, prev_stacks, *it, grammar->stacks);
-        if (grammar->stacks.empty()) {
+    for (const auto & cpt : cpts) {
+        const llama_grammar_stacks stacks_prev = llama_grammar_get_stacks(grammar); // copy
+
+        llama_grammar_accept(rules, stacks_prev, cpt, stacks_cur);
+
+        if (stacks_cur.empty()) {
             // no stacks means that the grammar failed to match at this point
             return false;
         }
     }
 
-    for (const auto & stack : grammar->stacks) {
+    for (const auto & stack : stacks_cur) {
         if (stack.empty()) {
             // An empty stack means that the grammar has been completed
             return true;
@@ -72,10 +60,12 @@ static void test(const std::string & test_desc, const std::string & grammar_str,
     fprintf(stderr, "⚫ Testing %s\n%s\n", test_desc.c_str(), grammar_str.c_str());
     fflush(stderr);
 
-    auto grammar = build_grammar(grammar_str);
+    auto * grammar = build_grammar(grammar_str);
 
     // Save the original grammar stacks so that we can reset after every new string we want to test
-    auto original_stacks = grammar->stacks;
+    const llama_grammar_stacks stacks_org = llama_grammar_get_stacks(grammar);
+
+    llama_grammar_stacks & stacks_cur = llama_grammar_get_stacks(grammar);
 
     fprintf(stderr, "  🔵 Valid strings:\n");
 
@@ -112,7 +102,7 @@ static void test(const std::string & test_desc, const std::string & grammar_str,
         assert(matched);
 
         // Reset the grammar stacks
-        grammar->stacks = original_stacks;
+        stacks_cur = stacks_org;
     }
 
     fprintf(stderr, "  🟠 Invalid strings:\n");
@@ -132,11 +122,11 @@ static void test(const std::string & test_desc, const std::string & grammar_str,
         assert(!matched);
 
         // Reset the grammar stacks
-        grammar->stacks = original_stacks;
+        stacks_cur = stacks_org;
     }
 
     // Clean up allocated memory
-    llama_grammar_free(grammar);
+    llama_grammar_free_impl(grammar);
 }
 static void test_grammar(const std::string & test_desc, const std::string & grammar_str, const std::vector<std::string> & passing_strings, const std::vector<std::string> & failing_strings) {
     test(test_desc + ". Grammar: " + grammar_str, grammar_str, passing_strings, failing_strings);
@@ -496,7 +486,7 @@ static void test_special_chars() {
             "aaaaabcccc",
             "aaaabccc",
             "aaaabccccc",
-            "🔵🟠✅❌abc❌✅🟠🔵"
+            "🔵🟠✅❌abc❌✅🟠🔵",
             "🔵🟠abc🟠🔵"
         }
     );
@@ -676,7 +666,8 @@ static void test_failure_missing_root() {
         term ::= number
         number ::= [0-9]+)""";
 
-    grammar_parser::parse_state parsed_grammar = grammar_parser::parse(grammar_str.c_str());
+    llama_grammar_parser parsed_grammar;
+    parsed_grammar.parse(grammar_str.c_str());
 
     // Ensure we parsed correctly
     assert(!parsed_grammar.rules.empty());
@@ -698,7 +689,8 @@ static void test_failure_missing_reference() {
 
     fprintf(stderr, "    Expected error:  ");
 
-    grammar_parser::parse_state parsed_grammar = grammar_parser::parse(grammar_str.c_str());
+    llama_grammar_parser parsed_grammar;
+    parsed_grammar.parse(grammar_str.c_str());
 
     // Ensure we did NOT parsed correctly
     assert(parsed_grammar.rules.empty());
@@ -994,6 +986,40 @@ static void test_json_schema() {
     );
 
     test_schema(
+        "simple pattern",
+        // Schema
+        R"""({
+            "pattern": "^[a-zA-Z0-9_-]*$"
+        })""",
+        // Passing strings
+        {
+            R"""("")""",
+            R"""("He_llo-12")""",
+        },
+        // Failing strings
+        {
+            R"""("!")""",
+            R"""("Hello World")""",
+        }
+    );
+
+    test_schema(
+        "pattern with escapes",
+        // Schema
+        R"""({
+            "pattern": "^a\\^\\$\\.\\[\\]\\(\\)\\|\\{\\}\\*\\+\\?b$"
+        })""",
+        // Passing strings
+        {
+            R"""("a^$.[]()|{}*+?b")""",
+        },
+        // Failing strings
+        {
+            R"""("ab")""",
+        }
+    );
+
+    test_schema(
         "",
         // Schema
         R"""(
@@ -1062,8 +1088,6 @@ static void test_json_schema() {
             R"""({ "number": 1600, "street_name": "Pennsylvania" })""",
             // "By extension, even an empty object is valid"
             R"""({})""",
-            // "By default, providing additional properties is valid"
-            R"""({ "number": 1600, "street_name": "Pennsylvania", "street_type":"Avenue", "direction":"NW"})""",
             R"""({ "number": 1600, "street_name": "Pennsylvania", "street_type": "Avenue" })""",
         },
         // Failing strings
@@ -1074,6 +1098,9 @@ static void test_json_schema() {
             R"""({ "street_name": "Pennsylvania", "number": 1600 })""",
             // Reorder properties
             R"""({ "number": "1600", "street_name": "Pennsylvania", "street_type":"Avenue"})""",
+            // "Additional properties default to false for generation, even though the spec says true.
+            R"""({ "number": 1600, "street_name": "Pennsylvania", "street_type":"Avenue", "direction":"NW"})""",
+
         }
     );
 

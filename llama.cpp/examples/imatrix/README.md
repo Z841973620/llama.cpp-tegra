@@ -1,6 +1,6 @@
 # llama.cpp/examples/imatrix
 
-Compute an importance matrix for a model and given text dataset. Can be used during quantization to enchance the quality of the quantum models.
+Compute an importance matrix for a model and given text dataset. Can be used during quantization to enchance the quality of the quantized models.
 More information is available here: https://github.com/ggerganov/llama.cpp/pull/4861
 
 ## Usage
@@ -25,8 +25,6 @@ For faster computation, make sure to use GPU offloading via the `-ngl` argument
 ## Example
 
 ```bash
-LLAMA_CUDA=1 make -j
-
 # generate importance matrix (imatrix.dat)
 ./llama-imatrix -m ggml-model-f16.gguf -f train-data.txt -ngl 99
 
