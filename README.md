@@ -1,3 +1,5 @@
+## 由于 CUDA 10.2 不支持的功能过多且 JetPack4.4 开始支持 Vulkan 1.2，此仓库将不再更新 CUDA 支持，请参考下方内容自行编译 Vulkan 后端
+
 ### 为 JetPack4.6 编译 llama.cpp，支持 Jetson Xavier/TX2/TX1/Nano
 
 ![IMG](./IMG.png)
